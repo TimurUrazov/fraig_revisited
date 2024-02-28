@@ -154,11 +154,6 @@ class Normalize:
                     elements_to_indices[vertex_to_set] = elements_to_indices[vertex_to_remove]
                 if vertex_to_set != vertex_to_remove:
                     del elements_to_indices[vertex_to_remove]
-            # elif vertex_to_set in elements_to_indices:
-            #     for vertex_to_insert in elements_to_indices[vertex_to_set]:
-            #         if is_output:
-            #             negation_mark_updated = elements[vertex_to_insert][1] ^ negation_mark
-            #             elements[vertex_to_insert] = (vertex_to_set, negation_mark_updated)
 
         update_elements(vertex_to_del, new_vertex, outputs, outputs_to_indices, True)
         update_elements(vertex_to_del, new_vertex, inputs, inputs_to_indices, False)
@@ -178,22 +173,6 @@ class Normalize:
     ):
         vertex_to_replace = graph[vertex_to_replace_num]
         pairs_in_constraints = vertex_to_replace.pairs_in_constraints()
-        # want to change to replace 70 on 80,
-        # so we get all pairs vertices with 70:
-        # 1) we get 70 (we just add 80 80 constraint: 80 -80 if negated or 80 80 if ok)
-        # 2) we get other vertex (56 for example)
-        # 80 -80
-        # -80 80
-        #
-        # -80 -80
-        # 80 80
-
-        # 94 620
-
-        # we have 578 94 constraint and want to replace 578 to 94
-        # so if vertex in pair had negation other than
-        # vertex_to_replace_negation_mark ^ equivalence_negation_mark than we just remove constraints
-        # otherwise have constraint with vertex doubled (so it is assumption)
         constraints_to_add = []
         for vertex_to_replace_negation_mark, vertex_in_pair_num, vertex_in_pair_neg_mark in pairs_in_constraints:
             if vertex_in_pair_num == vertex_to_replace_num:
