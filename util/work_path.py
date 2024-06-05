@@ -1,7 +1,6 @@
 import os
 
 
-# Code given from: https://github.com/aimclub/evoguess-ai/blob/master/util/work_path.py
 class WorkPath:
     def __init__(self, *dirs: str, root: str = os.path.join(os.path.dirname(os.path.abspath(__file__)), os.pardir)):
         self.root = os.path.abspath(root)

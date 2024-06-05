@@ -1,23 +1,23 @@
-from algorithm import CubeAndConquer
-from util import WorkPath
-from scheme import AAGLEC
-from datetime import datetime
-
-
-def date_now() -> str:
-    return datetime.today().strftime("%Y.%m.%d-%H:%M:%S")
+from algorithm import DegreeBranchingHeuristic, LeafSizeHaltingHeuristic, FraigTransformationHeuristic
+from lec import LogicalEquivalenceChecking
+from util import WorkPath, date_now, Solvers
 
 
 if __name__ == '__main__':
     root_path = WorkPath('aiger')
-    dadda = AAGLEC(
-        left_scheme_from_file=root_path.to_file('dadda3x3.aag'),
-        right_scheme_from_file=root_path.to_file('karatsuba3x3.aag')
-    ).get_scheme_till_xor()
 
-    graph_size_limit = 40
-    reduce_limit = 70
-
-    cnc = CubeAndConquer(dadda, graph_size_limit, reduce_limit)
-    work_path = WorkPath('out').to_path(date_now() + '-' + str(graph_size_limit) + '-' + str(reduce_limit))
-    cnc.cube_and_conquer(work_path=work_path, max_workers=16)
+    LogicalEquivalenceChecking(
+        left_scheme_file=root_path.to_file('dadda12x12.aag'),
+        right_scheme_file=root_path.to_file('karatsuba12x12.aag'),
+        branching_heuristic=DegreeBranchingHeuristic(),
+        halt_heuristic=LeafSizeHaltingHeuristic(
+            leafs_size_lower_bound=4450,
+            max_depth=8,
+            reduction_conflicts=300
+        ),
+        transformation_heuristics=FraigTransformationHeuristic(),
+        work_path=WorkPath('out').to_path(date_now()),
+        worker_solver=Solvers.ROKK_LRB
+    ).solve_using_processes(
+        number_of_executor_workers=16
+    )

@@ -1,39 +1,5 @@
-import time
-import sys
-import os
-import argparse
-import random
-import copy
-import signal
-import json
-import pprint
-import itertools
-import functools
-import subprocess
-import ast
 from toposort import toposort
-# import tempfile
-# import shutil
-from functools import reduce
-from threading import Timer
-from itertools import combinations, product
 from typing import List, Tuple, Dict
-
-print = functools.partial(print, flush=True)
-
-
-# Parser
-def createParser():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('-n', '--namecircuit', nargs='?', default='test.bench',
-                        help='Circuit file (in bench or AIGER (ASCII) format)')
-    parser.add_argument('-o', '--outputfilename', nargs='?', default='test.cnf', help='Name for output CNF')
-    parser.add_argument('-sv', '--shuffle_vars_flag', nargs='?', type=int, default=0)
-    return parser
-
-
-class Error(Exception):
-    pass
 
 
 def get_bench_header(bench):
@@ -84,7 +50,7 @@ def parse_bench_to_map(bench_lines, start_var_id, circuit_number):
                         inputs_names.append([input_gate_name, input_var_ids])
                         input_var_ids += 1
                     else:
-                        raise 'WRONG SCHEME NUMBER IN parse_bench_to_map'
+                        raise Exception('Wrong scheme number while parsing bench')
             elif 'OUTPUT' in line:
                 output_gate_name = int(line[8:-4])
                 outputs_names.append([output_gate_name, None])
@@ -107,29 +73,27 @@ def parse_bench_to_map(bench_lines, start_var_id, circuit_number):
         elif output[0] - 1 in vars_dict:
             output[1] = vars_dict[output[0] - 1]
         else:
-            raise Error('OUTPUT NOT IN VARS_DICT')
+            raise Exception('Output not in vars dict')
     return vars_dict, outputs_names, inputs_names, current_var_id
 
 
 def encode_gates(bench_lines, vars_dict):
     clauses = []
     for line in bench_lines:
-        # print(line)
         clauses_ = None
         if 'AND' in line:
-            clauses_ = encode_AND_gate(line, vars_dict)
+            clauses_ = encode_and_gate(line, vars_dict)
         if clauses_ != None:
             clauses.extend(clauses_)
     return clauses
 
 
-def encode_AND_gate(line, var_map, circuit_flag=False):
-    # G1gat = and(G2gat, G3gat)
+def encode_and_gate(line, var_map, circuit_flag=False):
     clauses = []
     gate_outp = int(line.split()[0][1:-3])
     gate_input1 = int(line.split('(')[1].split(',')[0][1:-3])
     gate_input2 = int(line.split()[3][:-1][1:-3])
-    if circuit_flag == False:
+    if not circuit_flag:
         var_outp = var_map[gate_outp]
         var_input1 = var_map[gate_input1]
         var_input2 = var_map[gate_input2]
@@ -141,35 +105,131 @@ def encode_AND_gate(line, var_map, circuit_flag=False):
     return clauses
 
 
-def solve_CNF(cnf, timelimit):
-    solver = subprocess.run(["./kissat", "--time=" + str(timelimit)], capture_output=True, text=True, input=cnf)
-    result = solver.stdout.split('\n')
-    errors = solver.stderr
-    if len(errors) > 0:
-        print(errors)
-    return result
-
-
 def list_to_clauses(clist, vars_dict, constraints: List[Tuple[int, int]]):
     clauses = []
     for l in clist:
         clause = ' '.join(list(map(str, l))) + ' 0'
         clauses.append(clause)
-    for constraint in constraints:
-        first, second = constraint
-        if first % 2 > 0:
-            fst = -vars_dict[first - 1]
-        else:
-            fst = vars_dict[first]
+    if constraints:
+        for constraint in constraints:
+            first, second = constraint
+            if first % 2 > 0:
+                fst = -vars_dict[first - 1]
+            else:
+                fst = vars_dict[first]
 
-        if second % 2 > 0:
-            scd = -vars_dict[second - 1]
-        else:
-            scd = vars_dict[second]
+            if second % 2 > 0:
+                scd = -vars_dict[second - 1]
+            else:
+                scd = vars_dict[second]
 
-        clause = ' '.join(list(map(str, [fst, scd]))) + ' 0'
-        clauses.append(clause)
+            clause = ' '.join(list(map(str, [fst, scd]))) + ' 0'
+            clauses.append(clause)
     return clauses
+
+
+def list_to_clause(clist, vars_dict, constraints: List[Tuple[int, int]]):
+    clauses = []
+    for l in clist:
+        clauses.append(l)
+    if constraints:
+        for constraint in constraints:
+            first, second = constraint
+            if first % 2 > 0:
+                fst = -vars_dict[first - 1]
+            else:
+                fst = vars_dict[first]
+
+            if second % 2 > 0:
+                scd = -vars_dict[second - 1]
+            else:
+                scd = vars_dict[second]
+
+            clauses.append([fst, scd])
+    return clauses
+
+
+def aig2bench_from_file_lines(file_lines):
+    aig_file_lines = file_lines.split('\n')
+    aig_file_lines = aig_file_lines[:-1]
+    test_name = 'test_name'
+    aig_header = aig_file_lines[0].split()
+    nof_inputs = int(aig_header[2])
+    nof_outputs = int(aig_header[4])
+    del aig_file_lines[0]
+    not_gates = dict()
+
+    inputs_list = []
+    for i in range(nof_inputs):
+        inputs_list.append(int(aig_file_lines[0]))
+        del aig_file_lines[0]
+    outputs_list = []
+    for i in range(nof_outputs):
+        outputs_list.append(int(aig_file_lines[0]))
+        if int(aig_file_lines[0]) % 2 > 0:
+            not_tuple = (int(aig_file_lines[0]), int(aig_file_lines[0]) - 1)
+            if not_tuple not in not_gates:
+                not_gates[not_tuple] = 1
+        del aig_file_lines[0]
+
+    const_false = False
+    const_true = False
+    and_gates = []
+    for line in aig_file_lines:
+        if line[0].isdigit():
+            and_gate_name = int(line.split()[0])
+            first_input = int(line.split()[1])
+            second_input = int(line.split()[2])
+            if first_input % 2 > 0 and first_input > 1:
+                not_tuple = (first_input, first_input - 1)
+                if not_tuple not in not_gates:
+                    not_gates[not_tuple] = 1
+            if second_input % 2 > 0 and second_input > 1:
+                not_tuple = (second_input, second_input - 1)
+                if not_tuple not in not_gates:
+                    not_gates[not_tuple] = 1
+            if first_input == 0 or second_input == 0:
+                const_false = True
+            if first_input == 1 or second_input == 1:
+                const_true = True
+            and_tuple = tuple([and_gate_name, first_input, second_input])
+            and_gates.append(and_tuple)
+
+    if const_false or const_true:
+        if tuple([3, 2]) not in not_gates.keys():
+            not_gates[tuple([3, 2])] = 1
+        and_gates.append(tuple([0, 2, 3]))
+        if const_true:
+            not_gates[tuple([1, 0])] = 1
+    result = ['# testname: ' + str(test_name),
+              '#         lines from primary input  gates .......     ' + str(len(inputs_list)),
+              '#         lines from primary output gates .......     ' + str(len(outputs_list)),
+              '#         lines from primary not gates .......     ' + str(len(not_gates)),
+              '#         lines from primary and gates .......     ' + str(len(and_gates))]
+    for inp in sorted(inputs_list):
+        input_line = 'INPUT(G' + str(inp) + 'gat)'
+        result.append(input_line)
+    for out in outputs_list:
+        output_line = 'OUTPUT(G' + str(out) + 'gat)'
+        result.append(output_line)
+    result.append('')
+    lines = []
+    for not_gate in not_gates.keys():
+        not_gate_out = not_gate[0]
+        not_gate_inp = not_gate[1]
+        not_line = 'G' + str(not_gate_out) + 'gat = NOT(G' + str(not_gate_inp) + 'gat)'
+        lines.append((not_line, not_gate))
+    for and_gate in and_gates:
+        and_gate_out = and_gate[0]
+        and_gate_inp1 = and_gate[1]
+        and_gate_inp2 = and_gate[2]
+        and_line = 'G' + str(and_gate_out) + 'gat = AND(G' + str(and_gate_inp1) + 'gat, G' + str(
+            and_gate_inp2) + 'gat)'
+        lines.append((and_line, and_gate))
+    lines.sort(key=lambda x: int(max(x[1])))
+    lines = [x[0] for x in lines]
+    result += lines
+    return result
 
 
 def aig2bench(filename):
@@ -178,11 +238,8 @@ def aig2bench(filename):
     with open(aig_filename, "r") as f:
         aig_file_lines = f.readlines()
     aig_header = aig_file_lines[0].split()
-    max_var_index = int(aig_header[1])
     nof_inputs = int(aig_header[2])
-    nof_latches = int(aig_header[3])
     nof_outputs = int(aig_header[4])
-    nof_and_gates = int(aig_header[5])
     del aig_file_lines[0]
     not_gates = dict()
 
@@ -190,7 +247,6 @@ def aig2bench(filename):
     for i in range(nof_inputs):
         inputs_list.append(int(aig_file_lines[0]))
         del aig_file_lines[0]
-        # print(inputs_list)
 
     outputs_list = []
     for i in range(nof_outputs):
@@ -224,42 +280,37 @@ def aig2bench(filename):
             and_tuple = tuple([and_gate_name, first_input, second_input])
             and_gates.append(and_tuple)
 
-    if const_false == True or const_true == True:
+    if const_false or const_true:
         if tuple([3, 2]) not in not_gates.keys():
             not_gates[tuple([3, 2])] = 1
         and_gates.append(tuple([0, 2, 3]))
-        if const_true == True:
+        if const_true:
             not_gates[tuple([1, 0])] = 1
-    result = []
-    result.append('# testname: ' + str(test_name))
-    result.append('#         lines from primary input  gates .......     ' + str(len(inputs_list)))
-    result.append('#         lines from primary output gates .......     ' + str(len(outputs_list)))
-    result.append('#         lines from primary not gates .......     ' + str(len(not_gates)))
-    result.append('#         lines from primary and gates .......     ' + str(len(and_gates)))
+    result = ['# testname: ' + str(test_name),
+              '#         lines from primary input  gates .......     ' + str(len(inputs_list)),
+              '#         lines from primary output gates .......     ' + str(len(outputs_list)),
+              '#         lines from primary not gates .......     ' + str(len(not_gates)),
+              '#         lines from primary and gates .......     ' + str(len(and_gates))]
     for inp in sorted(inputs_list):
         input_line = 'INPUT(G' + str(inp) + 'gat)'
         result.append(input_line)
-    for outp in outputs_list:
-        output_line = 'OUTPUT(G' + str(outp) + 'gat)'
+    for out in outputs_list:
+        output_line = 'OUTPUT(G' + str(out) + 'gat)'
         result.append(output_line)
     result.append('')
     lines = []
     for not_gate in not_gates.keys():
-        # G2gat = not(G1gat)
-        not_gate_outp = not_gate[0]
+        not_gate_out = not_gate[0]
         not_gate_inp = not_gate[1]
-        not_line = 'G' + str(not_gate_outp) + 'gat = NOT(G' + str(not_gate_inp) + 'gat)'
+        not_line = 'G' + str(not_gate_out) + 'gat = NOT(G' + str(not_gate_inp) + 'gat)'
         lines.append((not_line, not_gate))
-        # print(not_line,file=outfile)
     for and_gate in and_gates:
-        and_gate_outp = and_gate[0]
+        and_gate_out = and_gate[0]
         and_gate_inp1 = and_gate[1]
         and_gate_inp2 = and_gate[2]
-        # G3gat = and(G1gat, G2gat)
-        and_line = 'G' + str(and_gate_outp) + 'gat = AND(G' + str(and_gate_inp1) + 'gat, G' + str(
+        and_line = 'G' + str(and_gate_out) + 'gat = AND(G' + str(and_gate_inp1) + 'gat, G' + str(
             and_gate_inp2) + 'gat)'
         lines.append((and_line, and_gate))
-        # print(and_line,file=outfile)
     lines.sort(key=lambda x: int(max(x[1])))
     lines = [x[0] for x in lines]
     result += lines
@@ -271,48 +322,21 @@ def encode_output_equiv(max_var, outputs_names):
     current_var = max_var
     for output_name in outputs_names:
         output_var = output_name[1]
-        new_clauses_, current_var = encode_EQUIV_clauses(output_var, current_var)
+        new_clauses_, current_var = encode_equiv_clauses(output_var, current_var)
         output_name[1] = current_var
         new_clauses.extend(new_clauses_)
     return new_clauses, current_var
 
 
-def encode_EQUIV_clauses(output_var, current_var):
+def encode_equiv_clauses(output_var, current_var):
     current_var += 1
-    clauses = [[-current_var, output_var],
-               [current_var, -output_var]]
+    clauses = [[-current_var, output_var], [current_var, -output_var]]
     return clauses, current_var
 
 
-def shuffle_var_names(clauses_list, max_var, inputs_names, outputs_names):
-    old_var_names = [x for x in range(1, max_var + 1)]
-    new_var_names = [x for x in range(1, max_var + 1)]
-    random.shuffle(new_var_names)
-    shuffle_dict = dict()
-    # print(new_var_names)
-    for old, new in zip(old_var_names, new_var_names):
-        shuffle_dict[old] = new
-    # pprint.pprint(shuffle_dict)
-    for clause in clauses_list:
-        for i in range(len(clause)):
-            clause[i] = -shuffle_dict[abs(clause[i])] if clause[i] < 0 else shuffle_dict[abs(clause[i])]
-    for pair in inputs_names:
-        # print(pair)
-        pair[1] = shuffle_dict[abs(pair[1])]
-    for pair in outputs_names:
-        # print(pair)
-        pair[1] = shuffle_dict[abs(pair[1])]
-
-
-def make_header_and_comments(len_clauses_list, max_var, inputs_names, vars_dict, outputs_names, layers_vars):
-    # for k in vars_dict:
-    #     v = vars_dict[k]
-    #     if (v < 0 and abs(v) * 2 + 1 != k) or (v > 0 and v * 2 != k):
-    #         print("v k:", v, k)
+def make_header_and_comments(len_clauses_list, max_var, inputs_names, outputs_names, layers_vars):
     header = 'p cnf ' + str(max_var) + ' ' + str(len_clauses_list)
     comment_inputs = 'c inputs: ' + ' '.join([str(x[1]) for x in inputs_names])
-    circuit_vars = [x for x in vars_dict.values() if x not in [x[1] for x in inputs_names] and x > 0]
-    # comment_vars = 'c variables for gates: ' + str(min(circuit_vars)) + ' ... ' + str(max(circuit_vars))
     comment_outputs = 'c outputs: ' + ' '.join([str(x[1]) for x in outputs_names])
     comment_layers = make_layers_comment(layers_vars)
     comments = [comment_inputs, comment_outputs, comment_layers]
@@ -330,57 +354,77 @@ def make_layers_comment(layers_vars):
     return comment
 
 
-def write_out_CNF(LECfilename, header, comments, dimacs_cnf, ):
-    with open(LECfilename, 'w') as outf:
+def write_out_cnf(lec_filename, header, comments, dimacs_cnf):
+    with open(lec_filename, 'w') as outf:
         print(header, file=outf)
         print(*comments, sep='\n', file=outf)
         print(*dimacs_cnf, sep='\n', file=outf)
 
 
-def get_toposort_layers(bench, var_map):
+def get_raw_cnf_data(header, comments, dimacs_cnf):
+    return ''.join([
+        header + '\n',
+        *[f'{x}\n' for x in comments],
+        *[f'{x}\n' for x in dimacs_cnf]
+    ])
+
+
+def get_topsort_layers(bench, var_map):
     vars_layers = dict()
     for line in bench:
         if 'and' in line:
-            gate_outp = int(line.split()[0][1:-3])
+            gate_out = int(line.split()[0][1:-3])
             gate_input1 = int(line.split('(')[1].split(',')[0][1:-3])
             gate_input2 = int(line.split()[3][:-1][1:-3])
-            var_outp = var_map[gate_outp]
+            var_out = var_map[gate_out]
             var_input1 = var_map[gate_input1]
             var_input2 = var_map[gate_input2]
-            vars_layers[var_outp] = {var_input1, var_input2}
-    # pprint.pprint(vars_layers)
+            vars_layers[var_out] = {var_input1, var_input2}
     vars_layers_list = list(toposort(vars_layers))
     return vars_layers_list
 
 
-def aag_to_cnf(circuit_filename, LECfilename, constraints):
-    if (circuit_filename.endswith('.aig') == True) or (circuit_filename.endswith('.aag') == True):
-        bench = aig2bench(circuit_filename)
-    elif circuit_filename.endswith('.bench') == True:
-        bench = open(circuit_filename, 'r').readlines()
-        for i in range(len(bench)):
-            if bench[i][-1] == '\n':
-                bench[i] = bench[i][:-1]
-    else:
-        raise Error('Unrecognized circuit format')
+class AAG2CNF:
+    def __init__(self):
+        self._cnf_to_aag_inputs_vars = None
+        self._aag_to_cnf_inputs_vars = None
 
-    bench, bench_testname, nof_inputs, nof_outputs, nof_and_gates, nof_not_gates = get_bench_header(bench)
+    def aag_to_cnf_raw_data(self, file_lines, constraints):
+        bench = aig2bench_from_file_lines(file_lines)
 
-    current_var_id = 1
-    vars_dict, outputs_names, inputs_names, current_var_id = parse_bench_to_map(bench, current_var_id, 1)
-    max_var = current_var_id - 1
+        bench, bench_test_name, nof_inputs, nof_outputs, nof_and_gates, nof_not_gates = get_bench_header(bench)
+        current_var_id = 1
+        vars_dict, outputs_names, inputs_names, current_var_id = parse_bench_to_map(bench, current_var_id, 1)
+        max_var = current_var_id - 1
 
-    clauses_list = encode_gates(bench, vars_dict)
+        clauses_list = encode_gates(bench, vars_dict)
 
-    if [x[1] for x in outputs_names] != list(range(max_var - len(outputs_names) + 1, max_var + 1)):
-        output_equiv_clauses, max_var = encode_output_equiv(max_var, outputs_names)
-        clauses_list.extend(output_equiv_clauses)
+        if [x[1] for x in outputs_names] != list(range(max_var - len(outputs_names) + 1, max_var + 1)):
+            output_equiv_clauses, max_var = encode_output_equiv(max_var, outputs_names)
+            clauses_list.extend(output_equiv_clauses)
 
-    layers_vars = get_toposort_layers(bench, vars_dict)
+        layers_vars = get_topsort_layers(bench, vars_dict)
 
-    header, comments = make_header_and_comments(len(clauses_list), max_var, inputs_names, vars_dict, outputs_names,
-                                                layers_vars)
+        header, comments = make_header_and_comments(
+            len(clauses_list), max_var, inputs_names, outputs_names, layers_vars
+        )
 
-    dimacs_cnf = list_to_clauses(clauses_list, vars_dict, constraints)
+        self._cnf_to_aag_inputs_vars = {inputs_name[1]: inputs_name[0] for inputs_name in inputs_names}
+        self._aag_to_cnf_inputs_vars = {inputs_name[0]: inputs_name[1] for inputs_name in inputs_names}
 
-    write_out_CNF(LECfilename, header, comments, dimacs_cnf)
+        clauses = list_to_clauses(clauses_list, vars_dict, constraints)
+        raw_cnf_data = get_raw_cnf_data(header, comments, clauses)
+        return raw_cnf_data
+
+    @property
+    def aag_to_cnf_inputs_vars(self) -> Dict[int, int]:
+        return self._aag_to_cnf_inputs_vars
+
+    @property
+    def cnf_to_aag_inputs_vars(self) -> Dict[int, int]:
+        return self._cnf_to_aag_inputs_vars
+
+
+__all__ = [
+    'AAG2CNF'
+]

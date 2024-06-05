@@ -24,11 +24,20 @@ class Config:
     def path_to_schemes(self) -> WorkPath:
         return self._base_path.to_path(self._data['path_to_schemes'])
 
-    def path_to_kissat(self) -> str:
-        return self._base_path.to_path(self._data['path_to_kissat']).to_file('kissat')
+    def path_to_kissat_2023(self) -> str:
+        return self._base_path.to_path(self._data['path_to_kissat_2023']).to_file('kissat')
+
+    def path_to_kissat_2022(self) -> str:
+        return self._base_path.to_path(self._data['path_to_kissat_2022']).to_file('kissat')
+
+    def path_to_rokk_lrb(self) -> str:
+        return self._base_path.to_path(self._data['path_to_rokk_lrb']).to_file('rokk-lrb')
+
+    def path_to_cadical(self) -> str:
+        return self._base_path.to_path(self._data['path_to_cadical']).to_file('cadical')
 
     def path_to_rokk(self) -> str:
-        return self._base_path.to_path(self._data['path_to_rokk']).to_file('rokk-lrb')
+        return self._base_path.to_path(self._data['path_to_rokk']).to_file('rokk')
 
 
 CONFIG = Config()

@@ -1,4 +1,4 @@
-from typing import List, Tuple
+from typing import List, Tuple, Dict, Any
 
 from ..encoding import Encoding, EncodingData
 
@@ -19,7 +19,7 @@ class CNFData(EncodingData):
             comments = {
                 'outputs': []
             }
-        self._comments = comments
+        self._comments: Dict[str, Any] = comments
 
     def _get_lines_and_max_lit(self) -> Tuple[str, int]:
         if not self._lines or not self._max_lit:
@@ -45,6 +45,9 @@ class CNFData(EncodingData):
         lines, max_lit = self._get_lines_and_max_lit()
         payload_len = len(constraints) + len(assumptions)
         outputs = 'c outputs: ' + ' '.join([str(x) for x in self.get_outputs()])
+        inputs = 'c inputs: ' + ' '.join([str(x) for x in (
+            self.get_inputs() if 'inputs' in self._comments else []
+        )])
         comments = []
         for comment_name in self._comments:
             if 'outputs' != comment_name and 'inputs' != comment_name:
@@ -52,6 +55,7 @@ class CNFData(EncodingData):
         return ''.join([
             self._get_source_header(payload_len),
             outputs + '\n',
+            inputs + '\n',
             *(f'{x}\n' for x in comments),
             lines, *(f'{x} 0\n' for x in assumptions),
             *(' '.join(map(str, c)) + ' 0\n' for c in constraints),
@@ -67,15 +71,20 @@ class CNFData(EncodingData):
     def get_inputs(self) -> List[int]:
         return self._comments['inputs']
 
+    def append_output(self) -> bool:
+        return self._comments['append_output']
+
 
 class CNF(Encoding):
     comment_lead = ['p', 'c']
 
-    def __init__(self, from_clauses: Clauses = None, from_file: str = None):
+    def __init__(self, from_clauses: Clauses = None, from_file: str = None, from_raw_data: str = None):
         super().__init__(from_file)
         self.clauses = from_clauses
         self._outputs = None
         self._cnf_data = None
+        if from_raw_data:
+            self._parse_raw_data(raw_data=from_raw_data)
 
     def _parse_raw_data(self, raw_data: str):
         process_line = 1
@@ -91,8 +100,9 @@ class CNF(Encoding):
                     comments['outputs'] = list(map(int, line.split(":")[1].split()))
                 elif "c inputs" in line:
                     comments['inputs'] = list(map(int, line.split(":")[1].split()))
+                elif "c append_output" in line:
+                    comments['append_output'] = bool(line.split(":")[1])
                 process_line += 1
-
             self._cnf_data = CNFData(
                 clauses, ''.join(lines), max_lit, comments
             )

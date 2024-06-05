@@ -6,4 +6,5 @@ from .file import *
 from .solver import *
 from .parser import *
 from .common import *
+from .logger import *
 from .aag_to_cnf import *

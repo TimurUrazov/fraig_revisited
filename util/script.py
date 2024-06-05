@@ -28,7 +28,7 @@ def read_metadata(filename: str):
 def _call_abc(args):
     path_to_abc = CONFIG.path_to_abc()
     subprocess.call([
-        path_to_abc.to_file('abc'), "-c", "source " + path_to_abc.to_file('abc.rc') + "; " + args
+        path_to_abc.to_file('estimate'), "-c", "source " + path_to_abc.to_file('estimate.rc') + "; " + args
     ])
 
 
